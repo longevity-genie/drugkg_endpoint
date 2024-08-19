@@ -1,21 +1,20 @@
 import time
 
-
 from common import *
 from pathlib import Path
 from fastapi import FastAPI
-from dotenv import load_dotenv
+
 from fastapi.middleware.cors import CORSMiddleware
-from kg_agent import BiochatterInstance, get_kg_connection_status, get_kg_config, load_prompts
+from kg_agent import BiochatterInstance, get_kg_connection_status, get_kg_config, get_api_key, load_prompts
 from loguru import logger
 
 log_path = Path(__file__)
 log_path = Path(log_path.parent, "logs", "symptom_checker.log")
 logger.add(log_path.absolute(), rotation="10 MB")
-load_dotenv(override=True)
+
 prompts = load_prompts()
 
-# What drug interactions of rapamycin are you aware of? What are these interactions
+# What drug interactions of rapamycin are you aware of? What are these interactions ?
 app = FastAPI(title="Biochatter Knowledge Graph API endpoint.")
 
 app.add_middleware(
@@ -81,7 +80,7 @@ def kg_chat_completions(
             "presence_penalty": presence_penalty,
             "frequency_penalty": frequency_penalty,
             "top_p": top_p,
-            "auth": get_api_key(),
+            "api_key": get_api_key(),
         }
 
         if request.model.startswith("gpt-"):
@@ -103,13 +102,15 @@ def kg_chat_completions(
                 # Creating a Message instance
                 system_message = Message(role=Role.system, content=system_prompt)
                 request.messages.insert(0, system_message)
-
+            logger.debug("Starting biocahtter.chat")
             resp_content, usage, kg_context_injection = biochatter.chat(
                 messages=messages,
                 use_kg=use_kg,
                 kg_config=kg_config,
             )
-
+            logger.debug(f"response: {resp_content}")
+            logger.debug(f"usage: {usage}")
+            logger.debug(f"kg_context: {kg_context_injection}")
             err_code = ErrorCodes.SUCCESS
         else:
             err_code = ErrorCodes.MODEL_NOT_SUPPORTED

@@ -1,13 +1,8 @@
-import os
+
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum, auto
 from biochatter.rag_agent import RagAgentModeEnum
-
-######### LOADERS ###########
-
-def get_api_key():
-    return os.getenv(ENV_OPENAI_API_KEY, None)
 
 ######### LITERALS ###########
 

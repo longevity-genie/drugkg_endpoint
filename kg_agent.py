@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 import openai
@@ -9,6 +10,14 @@ from biochatter.rag_agent import RagAgent, RagAgentModeEnum
 from biochatter.llm_connect import GptConversation, OllamaConversation
 from loguru import logger
 import neo4j_utils as nu
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+def get_api_key():
+    key = os.getenv(ENV_OPENAI_API_KEY, None)
+    logger.debug(f"Imported key starting with: {key:11}")
+    return key
 
 # Safe import from YAML
 def load_prompts(file_path: str = PROMPTS_FN):
@@ -127,6 +136,7 @@ class BiochatterInstance:
                 # save api_key to os.environ to facilitate conversation_factory
                 # to create conversation
                 if isinstance(self.chatter, GptConversation):
+                    logger.debug(f"Exporting api_key : {api_key:10}...")
                     os.environ["OPENAI_API_KEY"] = api_key
                 self.chatter.set_api_key(api_key, self.session_id)
 
