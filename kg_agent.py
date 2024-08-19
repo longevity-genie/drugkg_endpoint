@@ -16,16 +16,16 @@ load_dotenv(override=True)
 
 def get_api_key():
     key = os.getenv(ENV_OPENAI_API_KEY, None)
-    logger.debug(f"Imported key starting with: {key:11}")
+    logger.debug(f"Imported key starting with: {str(key):11}")
     return key
 
 # Safe import from YAML
 def load_prompts(file_path: str = PROMPTS_FN):
     try:
-        logger.debug(f"Importing prompts from: {file_path}")
+        logger.debug(f"Importing prompts from: {str(file_path)}")
         with open(file_path, 'r') as file:
             data = yaml.safe_load(file)
-        logger.debug(f"Prompts imported: {data}")
+        logger.debug(f"Prompts imported: {str(data)}")
         return data
     except Exception as e:
         logger.error(e)
@@ -111,8 +111,8 @@ class BiochatterInstance:
         self.session_id = session_id
         self.rag_agent_prompts = rag_agent_prompts
 
-        logger.debug(f"Session ID: {session_id}")
-        logger.debug(f"Session ID: {model_config}")
+        logger.debug(f"Session ID: {str(session_id)}")
+        logger.debug(f"Session ID: {str(model_config)}")
 
         self.createdAt = int(dt.now().timestamp() * 1000)  # in milliseconds
         self.refreshedAt = self.createdAt
@@ -136,7 +136,7 @@ class BiochatterInstance:
                 # save api_key to os.environ to facilitate conversation_factory
                 # to create conversation
                 if isinstance(self.chatter, GptConversation):
-                    logger.debug(f"Exporting api_key : {api_key:10}...")
+                    logger.debug(f"Exporting api_key : {str(api_key):10}...")
                     os.environ["OPENAI_API_KEY"] = api_key
                 self.chatter.set_api_key(api_key, self.session_id)
 
@@ -145,7 +145,7 @@ class BiochatterInstance:
 
         text = messages[-1]["content"] # extract last message for query
         history = messages[:-1] # trim last
-        logger.debug(f"history:{history}")
+        logger.debug(f"history:{str(history)}")
         # Convert the list of dictionaries to a list of Message objects
         messages_list: List[Message] = [Message(**message_dict) for message_dict in messages]
         self.setup_messages(messages_list)
@@ -153,10 +153,10 @@ class BiochatterInstance:
         try:
             msg, usage, corr = self.chatter.query(text) #primary LLM call
             kg_context_injection = self.chatter.get_last_injected_context()
-            logger.debug(f"msg:{msg}")
-            logger.debug(f"usage:{usage}")
-            logger.debug(f"correction:{corr}")
-            logger.debug(f"injection:{kg_context_injection}")
+            logger.debug(f"msg:{str(msg)}")
+            logger.debug(f"usage:{str(usage)}")
+            logger.debug(f"correction:{str(corr)}")
+            logger.debug(f"injection:{str(kg_context_injection)}")
             return msg, usage, kg_context_injection
         except Exception as e:
             logger.error(e)
@@ -187,12 +187,12 @@ class BiochatterInstance:
     def update_kg(self, kg_config: Optional[dict]):
         # update kg
         if not kg_config or ARGS_CONNECTION_ARGS not in kg_config:
-            logger.error(f"missing {ARGS_CONNECTION_ARGS} in {kg_config}")
+            logger.error(f"missing {ARGS_CONNECTION_ARGS} in {str(kg_config)}")
             return ErrorCodes.INVALID_INPUT
         try:
             schema_info = find_schema_info_node(kg_config[ARGS_CONNECTION_ARGS])
             if not schema_info:
-                logger.error(f"missing schema_info in the graph!!!")
+                logger.error("missing schema_info in the graph!!!")
                 return ErrorCodes.NOT_FOUND
             kg_agent = RagAgent(
                 mode=RagAgentModeEnum.KG,

@@ -36,7 +36,7 @@ async def get_kg_connection_status(
 ):
     try:
         logger.debug("GET biochatter_api/kg_status")
-        logger.debug("Input: {request}")
+        logger.debug(f"Input: {str(request)}")
         connection_args = request.connectionArgs
         connection_args = vars(connection_args)
         connected = get_kg_connection_status(connection_args)
@@ -54,7 +54,7 @@ def kg_chat_completions(
     request: ChatCompletionsPostModel
 ):
     logger.debug("GET /biochatter_api/chat/completions")
-    logger.debug(f"Input: {request}")
+    logger.debug(f"Input: {str(request)}")
     model = ""
     usage = "0"
     kg_context_injection = ""
@@ -108,9 +108,9 @@ def kg_chat_completions(
                 use_kg=use_kg,
                 kg_config=kg_config,
             )
-            logger.debug(f"response: {resp_content}")
-            logger.debug(f"usage: {usage}")
-            logger.debug(f"kg_context: {kg_context_injection}")
+            logger.debug(f"response: {str(resp_content)}")
+            logger.debug(f"usage: {str(usage)}")
+            logger.debug(f"kg_context: {str(kg_context_injection)}")
             err_code = ErrorCodes.SUCCESS
         else:
             err_code = ErrorCodes.MODEL_NOT_SUPPORTED
