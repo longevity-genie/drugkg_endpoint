@@ -26,6 +26,7 @@ DEFAULT_MODEL_CONFIG = {
 }
 
 RAG_KG = RagAgentModeEnum.KG
+BIOCHATTER_ENV = ".bioserver.env"
 PROMPTS_FN =  "prompts.yaml"
 NEO4J_DEFAULT_DB = "neo4j"
 ARGS_CONNECTION_ARGS = "connectionArgs"
@@ -88,7 +89,7 @@ class Message(BaseModel):
 class ChatCompletionsPostModel(BaseModel):
     messages: List[Message] = Field(..., example=[
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Can you help me with my task?"}
+        {"role": "user", "content": "What drug interactions of rapamycin are you aware of? What are these interactions ?"}
     ])
     model: str = Field(..., example="gpt-3.5-turbo")
     temperature: float = Field(default=0.0, example=0.7)

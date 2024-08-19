@@ -12,7 +12,7 @@ from loguru import logger
 import neo4j_utils as nu
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(dotenv_path=BIOCHATTER_ENV, override=True)
 
 def get_api_key():
     key = os.getenv(ENV_OPENAI_API_KEY, None)
