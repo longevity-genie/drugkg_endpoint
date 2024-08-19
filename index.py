@@ -33,9 +33,10 @@ async def default():
 
 @app.post("/biochatter_api/kg_status", description="returns knowledge graph connection status")
 async def get_kg_connection_status(
-    connection_args: KGConnectionArgs,
+    item: KGConnectionArgs,
 ):
     try:
+        connection_args = item.connectionArgs
         connection_args = vars(connection_args)
         connected = get_kg_connection_status(connection_args)
         return {

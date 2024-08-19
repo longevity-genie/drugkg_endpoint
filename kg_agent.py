@@ -2,7 +2,6 @@ import json
 import os
 from common import *
 from typing import Any, List, Optional
-from pydantic import BaseModel
 from biochatter.rag_agent import RagAgent, RagAgentModeEnum
 from loguru import logger
 import neo4j_utils as nu
