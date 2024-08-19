@@ -39,6 +39,7 @@ def process_connection_args(rag: str, connection_args: dict) -> dict:
 
 def get_kg_config(kg_config: dict):
     try:
+        logger.debug(f"Processing kg_config: {str(kg_config)}")
         kg_config[ARGS_CONNECTION_ARGS] = vars(kg_config[ARGS_CONNECTION_ARGS])
         kg_config[ARGS_CONNECTION_ARGS] = process_connection_args(
             RAG_KG, kg_config[ARGS_CONNECTION_ARGS]
@@ -127,9 +128,12 @@ class BiochatterInstance:
     ):
         if self.chatter is None:
             return
+        logger.debug(f"Chatter..ok")
         if not messages or len(messages) == 0:
             return
+        logger.debug(f"Messages..ok")
         api_key = get_api_key()
+        logger.debug(f"Exporting api_key : {str(api_key):10}...")
         if not api_key:
             return
         if not openai.api_key or not hasattr(self.chatter, "chat"):
@@ -141,6 +145,7 @@ class BiochatterInstance:
                 self.chatter.set_api_key(api_key, self.session_id)
 
         if use_kg:
+            logger.debug(f"Using KG, config: {str(kg_config)}")
             self.update_kg(kg_config)
 
         text = messages[-1]["content"] # extract last message for query

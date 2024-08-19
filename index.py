@@ -31,7 +31,7 @@ async def default():
     return "BioChatter KG API Endpoint v1.0"
 
 @app.post("/biochatter_api/kg_status", description="Tests knowledge graph connection for a specified database")
-async def get_kg_connection_status(
+async def kg_connection_status(
     request: KGConnectionArgs,
 ):
     try:
