@@ -16,7 +16,7 @@ load_dotenv(dotenv_path=BIOCHATTER_ENV, override=True)
 
 def get_api_key() -> str:
     key = os.getenv(ENV_OPENAI_API_KEY, None)
-    logger.debug(f"Imported key starting with: {str(key):11}")
+    logger.trace(f"Imported key starting with: {str(key)[:10]}")
     return key
 
 # Safe import from YAML
@@ -135,14 +135,14 @@ class BiochatterInstance:
             return
         logger.debug(f"Messages..ok")
         api_key = get_api_key()
-        logger.debug(f"Exporting api_key : {str(api_key):10}...")
+        logger.debug(f"Using api_key : {str(api_key)[:10]}...")
         if not api_key:
             return
         if not openai.api_key or not hasattr(self.chatter, "chat"):
                 # save api_key to os.environ to facilitate conversation_factory
                 # to create conversation
                 if isinstance(self.chatter, GptConversation):
-                    logger.debug(f"Exporting api_key : {str(api_key):10}...")
+                    logger.trace(f"Exporting api_key : {str(api_key)[:10]}...")
                     os.environ["OPENAI_API_KEY"] = api_key
                 self.chatter.set_api_key(api_key, self.session_id)
 
@@ -193,6 +193,7 @@ class BiochatterInstance:
 
     def update_kg(self, kg_config: Optional[dict]):
         # update kg
+        logger.debug(f"Updating KG_RAG agent")
         if not kg_config or ARGS_CONNECTION_ARGS not in kg_config:
             logger.error(f"missing {ARGS_CONNECTION_ARGS} in {str(kg_config)}")
             return ErrorCodes.INVALID_INPUT
@@ -205,6 +206,8 @@ class BiochatterInstance:
                 return ErrorCodes.NOT_FOUND
             else:
                 logger.info(f"Successfully got schema {str(schema_info)}")
+            n_results = kg_config.get(ARGS_RESULT_NUM, RESULT_NUM_DEFAULT)
+            logger.debug(f"Expecting {str(n_results)} results")
             kg_agent = RagAgent(
                 mode=RagAgentModeEnum.KG,
                 model_name=DEFAULT_MODEL,
@@ -212,7 +215,8 @@ class BiochatterInstance:
                 use_prompt=True, #must be set for retrival to work
                 schema_config_or_info_dict=schema_info,
                 conversation_factory=self.create_chatter,  # chatter factory
-                n_results=kg_config.get(ARGS_RESULT_NUM, RESULT_NUM_DEFAULT)  # number of results to return
+                n_results=n_results,  # number of results to return
+                use_reflexion=True,
             )
             self.chatter.set_rag_agent(kg_agent) #only one instance of kg_agent per chatter
         except Exception as e:
