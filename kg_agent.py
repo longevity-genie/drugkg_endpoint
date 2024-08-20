@@ -14,13 +14,13 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=BIOCHATTER_ENV, override=True)
 
-def get_api_key():
+def get_api_key() -> str:
     key = os.getenv(ENV_OPENAI_API_KEY, None)
     logger.debug(f"Imported key starting with: {str(key):11}")
     return key
 
 # Safe import from YAML
-def load_prompts(file_path: str = PROMPTS_FN):
+def load_prompts(file_path: str = PROMPTS_FN) -> Optional[dict]:
     try:
         logger.debug(f"Importing prompts from: {str(file_path)}")
         with open(file_path, 'r') as file:
@@ -31,23 +31,25 @@ def load_prompts(file_path: str = PROMPTS_FN):
         logger.error(e)
         return None
 
-def process_connection_args(rag: str, connection_args: dict) -> dict:
-    if rag == RAG_KG:
-        if connection_args.get("host", "").lower() == "local":
-            connection_args["host"] = os.getenv(ENV_KG_HOST, localhost)
+def process_connection_args(connection_args: DbConnectionArgs) -> DbConnectionArgs:
+    logger.debug(f"Processing args: {str(connection_args)}")
+    if connection_args.host is not None and connection_args.host.lower() == "local":
+        connection_args.host = os.getenv(ENV_KG_HOST, localhost)
+    if connection_args.port is None or connection_args.port == "":
+        connection_args.port = os.getenv(ENV_KG_PORT, 7687)
+    logger.debug(f"Processing result: {str(connection_args)}")
     return connection_args
 
-def get_kg_config(kg_config: dict):
+def process_kg_config(kg_config: KGConfig) -> KGConfig:
     try:
-        logger.debug(f"Processing kg_config: {str(kg_config)}")
-        kg_config[ARGS_CONNECTION_ARGS] = vars(kg_config[ARGS_CONNECTION_ARGS])
-        kg_config[ARGS_CONNECTION_ARGS] = process_connection_args(
-            RAG_KG, kg_config[ARGS_CONNECTION_ARGS]
-        )
-
+        logger.debug(f"Input kg_config: {str(kg_config)}")
+        kg_config.connectionArgs = process_connection_args(kg_config.connectionArgs)
+        logger.debug(f"Processing result of kg_config: {str(kg_config)}")
+        return kg_config
     except Exception as e:
-        logger.error(e)
-        return None
+        logger.error(f"Error during updating of kg_config: {str(e)}")
+        return kg_config
+
 
 def get_rag_agent_prompts(prompt: str = None) -> List[str]:
     if prompt:
@@ -55,7 +57,7 @@ def get_rag_agent_prompts(prompt: str = None) -> List[str]:
     else:
         return [KG_RAG_PROMPT]
 
-def find_schema_info_node(connection_args: dict):
+def find_schema_info_node(connection_args: dict) -> Optional[dict]:
     try:
         """
         Look for a schema info node in the connected BioCypher graph and load the
@@ -79,11 +81,11 @@ def find_schema_info_node(connection_args: dict):
         logger.error(e)
         return None
 
-def get_kg_connection_status(connection_args: Optional[dict]):
+def get_kg_connection_status(connection_args: DbConnectionArgs) -> bool:
     if not connection_args:
         return False
     try:
-        connection_args = process_connection_args(RAG_KG, connection_args)
+        connection_args = vars(process_connection_args(connection_args))
         schema_dict = find_schema_info_node(connection_args)
         rag_agent = RagAgent(
             mode=RagAgentModeEnum.KG,
@@ -195,14 +197,18 @@ class BiochatterInstance:
             logger.error(f"missing {ARGS_CONNECTION_ARGS} in {str(kg_config)}")
             return ErrorCodes.INVALID_INPUT
         try:
-            schema_info = find_schema_info_node(kg_config[ARGS_CONNECTION_ARGS])
+            conn_args = vars(kg_config[ARGS_CONNECTION_ARGS])
+            logger.debug(f"Connecting using {str(conn_args)}")
+            schema_info = find_schema_info_node(conn_args)
             if not schema_info:
                 logger.error("missing schema_info in the graph!!!")
                 return ErrorCodes.NOT_FOUND
+            else:
+                logger.info(f"Successfully got schema {str(schema_info)}")
             kg_agent = RagAgent(
                 mode=RagAgentModeEnum.KG,
                 model_name=DEFAULT_MODEL,
-                connection_args=kg_config[ARGS_CONNECTION_ARGS],
+                connection_args=conn_args,
                 use_prompt=True, #must be set for retrival to work
                 schema_config_or_info_dict=schema_info,
                 conversation_factory=self.create_chatter,  # chatter factory

@@ -5,11 +5,11 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from fastapi.middleware.cors import CORSMiddleware
-from kg_agent import BiochatterInstance, get_kg_connection_status, get_kg_config, get_api_key, load_prompts
+from kg_agent import BiochatterInstance, get_kg_connection_status, process_kg_config, get_api_key, load_prompts
 from loguru import logger
 
 log_path = Path(__file__)
-log_path = Path(log_path.parent, "logs", "symptom_checker.log")
+log_path = Path(log_path.parent, "logs", "biochatter_endpoint.log")
 logger.add(log_path.absolute(), rotation="10 MB")
 
 prompts = load_prompts()
@@ -37,9 +37,7 @@ async def kg_connection_status(
     try:
         logger.debug("GET biochatter_api/kg_status")
         logger.debug(f"Input: {str(request)}")
-        connection_args = request.connectionArgs
-        connection_args = vars(connection_args)
-        connected = get_kg_connection_status(connection_args)
+        connected = get_kg_connection_status(request.connectionArgs)
         return {
             "status": "connected" if connected else "disconnected",
             "code": ErrorCodes.SUCCESS,
@@ -61,14 +59,13 @@ def kg_chat_completions(
     resp_content = "Unknown Error"
     try:
         # session_id = request.session_id
-        session_id = None #no cache for now
         messages = [vars(msg) for msg in request.messages]
         model = request.model
         temperature = request.temperature
         presence_penalty = request.presence_penalty
         frequency_penalty = request.frequency_penalty
         top_p = request.top_p
-        kg_config = get_kg_config(vars(request.kgConfig))
+        kg_config = vars(process_kg_config(request.kgConfig))
         use_kg = request.useKG
 
         system_prompt = None

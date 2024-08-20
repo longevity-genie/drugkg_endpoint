@@ -7,8 +7,8 @@ from biochatter.rag_agent import RagAgentModeEnum
 ######### LITERALS ###########
 
 CONNECTION_ARGS_EXAMPLE = {
-    "host": "localhost",
-    "port": "7687",
+    "host": "local",
+    "port": "17687",
     "db_name": "neo4j",
     "user": "neo4j",
     "password": "neo4j"
