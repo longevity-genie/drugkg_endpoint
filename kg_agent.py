@@ -1,9 +1,16 @@
 import os
 import json
 import uuid
+from random import choices
+
 import openai
 import yaml
-from common import *
+import time
+
+from openai.types import CompletionUsage
+from sympy import content
+
+from models import *
 from typing import List, Optional, Dict
 from datetime import datetime as dt
 from biochatter.rag_agent import RagAgent, RagAgentModeEnum
@@ -13,6 +20,11 @@ import neo4j_utils as nu
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=BIOCHATTER_ENV, override=True)
+
+def get_app_port() -> int:
+    app_port = int(os.getenv(ENV_APP_PORT, APP_PORT_DEF))
+    logger.trace(f"Imported app_port: {str(app_port)}")
+    return app_port
 
 def get_api_key() -> str:
     key = os.getenv(ENV_OPENAI_API_KEY, None)
@@ -30,6 +42,25 @@ def load_prompts(file_path: str = PROMPTS_FN) -> Optional[dict]:
     except Exception as e:
         logger.error(e)
         return None
+
+
+def content_to_string(message:Message) -> str:
+    if isinstance(message.content, str):
+        # If the content is already a string, return it as is
+        return message.content
+
+    # If content is a list, process each item
+    result_strings = []
+    for item in message.content:
+        if isinstance(item, TextContent):
+            # If the item is TextContent, add the text
+            result_strings.append(item.text)
+        elif isinstance(item, ImageContent):
+            # If the item is ImageContent, add the image URL as a string
+            result_strings.append(f"[Image: {item.image_url}]")
+
+    # Join all the pieces into a single string with appropriate separators
+    return " ".join(result_strings)
 
 def process_connection_args(connection_args: DbConnectionArgs) -> DbConnectionArgs:
     logger.debug(f"Processing args: {str(connection_args)}")
@@ -99,6 +130,28 @@ def get_kg_connection_status(connection_args: DbConnectionArgs) -> bool:
         logger.error(e)
         return False
 
+def get_completion_response(model : Optional[str]=DEFAULT_MODEL, text : Optional[str]=None, usage: Optional[ChatCompletionUsage] = None ) -> ChatCompletionResponse:
+    if not text:
+        text = "Something went wrong with response!!"
+    message = ChatCompletionMessage(
+        role=str(Role.assistant.value),
+        content=text
+    )
+    choice = ChatCompletionChoice(
+        index=0,
+        finish_reason="stop",
+        message=message,
+        text=text
+    )
+    response = ChatCompletionResponse(
+        id = "1",
+        object = "chat.completion",
+        created=time.time(),
+        model = model,
+        choices = [choice],
+        usage=usage
+    )
+    return response
 
 class BiochatterInstance:
     def __init__(
@@ -158,7 +211,7 @@ class BiochatterInstance:
         self.setup_messages(messages_list)
 
         try:
-            msg, usage, corr = self.chatter.query(text) #primary LLM call
+            msg, usage, corr = self.chatter.query(text)                                              #primary LLM call
             kg_context_injection = self.chatter.get_last_injected_context()
             logger.debug(f"msg:{str(msg)}")
             logger.debug(f"usage:{str(usage)}")
@@ -216,7 +269,7 @@ class BiochatterInstance:
                 schema_config_or_info_dict=schema_info,
                 conversation_factory=self.create_chatter,  # chatter factory
                 n_results=n_results,  # number of results to return
-                use_reflexion=True,
+    #            use_reflexion=True,
             )
             self.chatter.set_rag_agent(kg_agent) #only one instance of kg_agent per chatter
         except Exception as e:
