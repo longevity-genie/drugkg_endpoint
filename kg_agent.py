@@ -1,23 +1,24 @@
 import os
 import json
-import uuid
-from random import choices
-
+import asyncio
+from uuid import uuid4
 import openai
 import yaml
 import time
-
-from openai.types import CompletionUsage
-from sympy import content
-
+import copy
 from models import *
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from datetime import datetime as dt
 from biochatter.rag_agent import RagAgent, RagAgentModeEnum
-from biochatter.llm_connect import GptConversation, OllamaConversation
+from biochatter.llm_connect import (
+    GptConversation,
+   # OllamaConversation
+)
 from loguru import logger
 import neo4j_utils as nu
 from dotenv import load_dotenv
+
+_prompts : Optional[dict] = None
 
 load_dotenv(dotenv_path=BIOCHATTER_ENV, override=True)
 
@@ -31,20 +32,52 @@ def get_api_key() -> str:
     logger.trace(f"Imported key starting with: {str(key)[:10]}")
     return key
 
-# Safe import from YAML
 def load_prompts(file_path: str = PROMPTS_FN) -> Optional[dict]:
+    global _prompts
+    if _prompts:
+        return _prompts #Load once
     try:
         logger.debug(f"Importing prompts from: {str(file_path)}")
         with open(file_path, 'r') as file:
             data = yaml.safe_load(file)
         logger.debug(f"Prompts imported: {str(data)}")
+        _prompts = data
         return data
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error during loading prompts: {str(e)}")
         return None
 
+def get_system_prompt(request: ChatCompletionRequest) -> Tuple[Optional[str],Optional[List[str]]]:
+    #       GROQ not supported by biochatter.llmconnect
+    try:
+        prompts = load_prompts()
+        model_name = request.model.lower()
+        if model_name and prompts:
+            for key in prompts.keys():
+                if model_name.startswith(key.lower()):
+                    system_prompt = prompts[key].get("system_prompt", None)
+                    rag_agent_prompts = [prompts[key].get("kg_rag_prompt", KG_RAG_PROMPT)]
+                    return system_prompt, rag_agent_prompts
+        logger.warning("No prompts available!")
+    except Exception as e:
+        logger.error(f"Error during selecting prompts: {str(e)}")
+    return None, None
 
-def content_to_string(message:Message) -> str:
+
+def has_system_prompt(request: ChatCompletionRequest) -> Optional[bool]:
+    if request.messages and len(request.messages) > 0:
+        if request.messages[0] and request.messages[0].role == Role.system:
+            text = message_to_string(request.messages[0])
+            if text:
+                logger.info(f"Called with external prompt, switching to OpenAI")
+                logger.debug(f"External prompt: {text}")
+                return True #True if external prompt
+        return False # False if no prompt
+    else:
+        return #None if empty
+
+
+def message_to_string(message:Message) -> str:
     if isinstance(message.content, str):
         # If the content is already a string, return it as is
         return message.content
@@ -61,6 +94,81 @@ def content_to_string(message:Message) -> str:
 
     # Join all the pieces into a single string with appropriate separators
     return " ".join(result_strings)
+
+
+def string_to_message(
+        text: str,
+        message: Optional[Message] = None,
+        role: Optional[Role] = Role.assistant,
+        legacy: bool = False
+) -> Message:
+
+    if legacy:
+        # If message is provided, set role to message.role
+        new_role = message.role if message else role
+        return Message(role=new_role, content=text)
+
+    if message is None:
+        # No message provided, return a new Message with TextContent
+        return Message(
+            role=role,
+            content=[
+                TextContent(
+                    type="text",
+                    text=text
+                )
+            ]
+        )
+    else:
+        # Create a copy of the message to avoid mutating the original object
+        message = copy.deepcopy(message)
+
+    # If message content is a simple string, replace it with the text
+    if isinstance(message.content, str):
+        message.content = text
+        return message
+
+    # If message content is a list, determine if TextContent is present
+    text_content_found = False
+    for item in message.content:
+        if isinstance(item, TextContent):
+            item.text = text  # Replace the text in the existing TextContent
+            text_content_found = True
+            break
+
+    if not text_content_found:
+        # If TextContent is not present, append a new TextContent with the provided text
+        message.content.append(TextContent(text=text))
+
+    return message
+
+
+def inject_system_prompt(
+        request: ChatCompletionRequest,
+        system_prompt: str,
+        legacy: bool = False
+) -> Optional[List[Message]]:
+    try:
+        logger.trace(f"Changing system prompt to: {str(system_prompt)}")
+        if request.messages and len(request.messages) > 0:
+            logger.debug(f"First message: {str(request.messages[0])}")
+            if request.messages[0] and request.messages[0].role == Role.system:
+                #First message is empty system prompt
+                request.messages[0] = string_to_message(system_prompt, message=request.messages[0], legacy=legacy)
+            else:
+                # Injecting a SystemMessage instance into the start of conversation
+                system_message = string_to_message(system_prompt, role=Role.system, legacy=legacy)
+                request.messages.insert(0, system_message)
+            logger.debug(f"New first message: {str(request.messages[0])}")
+            return request.messages
+        else:
+            logger.warning(f"Empty messages!")
+            return None #empty messages
+    except Exception as e:
+        logger.error(f"Error during injection: {str(e)}")
+        return None
+
+
 
 def process_connection_args(connection_args: DbConnectionArgs) -> DbConnectionArgs:
     logger.debug(f"Processing args: {str(connection_args)}")
@@ -130,11 +238,16 @@ def get_kg_connection_status(connection_args: DbConnectionArgs) -> bool:
         logger.error(e)
         return False
 
-def get_completion_response(model : Optional[str]=DEFAULT_MODEL, text : Optional[str]=None, usage: Optional[ChatCompletionUsage] = None ) -> ChatCompletionResponse:
+def get_completion_response(
+        model : Optional[str]=DEFAULT_MODEL,
+        text : Optional[str]=None,
+        usage: Optional[ChatCompletionUsage] = None
+) -> ChatCompletionResponse:
+
     if not text:
         text = "Something went wrong with response!!"
-    message = ChatCompletionMessage(
-        role=str(Role.assistant.value),
+    message = ResponseMessage(
+        role=str(Role.assistant),
         content=text
     )
     choice = ChatCompletionChoice(
@@ -144,7 +257,7 @@ def get_completion_response(model : Optional[str]=DEFAULT_MODEL, text : Optional
         text=text
     )
     response = ChatCompletionResponse(
-        id = "1",
+        id = "chatcmpl-"+str(uuid4()),
         object = "chat.completion",
         created=time.time(),
         model = model,
@@ -153,10 +266,54 @@ def get_completion_response(model : Optional[str]=DEFAULT_MODEL, text : Optional
     )
     return response
 
+#  generator function to yield ChatCompletionChunk chunks
+async def generate_response_chunks(response: ChatCompletionResponse, stop: Optional[str] = "[DONE]" ) -> AsyncGenerator[str, None]:
+    logger.info("Imitating generation")
+    logger.trace(f"Given {str(response)}")
+    for choice in response.choices:
+        delta=ChatCompletionChoiceChunk(
+            index=choice.index,
+            delta=choice.message,
+            finish_reason=None
+        )
+        logger.trace(f"choice {str(delta)}")
+        chunk = ChatCompletionChunkResponse(
+            object="chat.completion.chunk",
+            id=response.id,
+            choices=[delta],
+            created=int(time.time()),
+            model=response.model,
+        )
+        chunk = chunk.model_dump_json()
+        logger.debug(f"chunk {str(chunk)}")
+        yield f"data: {chunk}\n\n"
+
+        await asyncio.sleep(1)
+    final_chunk = ChatCompletionChunkResponse(
+        object="chat.completion.chunk",
+        id=response.id,
+        created=int(time.time()),
+        model=response.model,
+        choices=[ChatCompletionChoiceChunk(
+            index=0,
+            delta=ResponseMessage(
+                role=None,
+                content=None
+            ),
+            finish_reason="stop"
+        )],
+        usage=response.usage,
+    )
+    final_chunk = final_chunk.model_dump_json()
+    logger.debug(f"final_chunk {str(final_chunk)}")
+    yield f"data: {final_chunk}\n\n"
+    yield f"data: {stop}\n\n"
+    await asyncio.sleep(1)
+
 class BiochatterInstance:
     def __init__(
         self,
-        session_id: str = uuid.uuid4(),
+        session_id: str = uuid4(),
         model_config: Dict = DEFAULT_MODEL_CONFIG.copy(),
         rag_agent_prompts=None
     ):
@@ -269,7 +426,7 @@ class BiochatterInstance:
                 schema_config_or_info_dict=schema_info,
                 conversation_factory=self.create_chatter,  # chatter factory
                 n_results=n_results,  # number of results to return
-    #            use_reflexion=True,
+                use_reflexion=True,
             )
             self.chatter.set_rag_agent(kg_agent) #only one instance of kg_agent per chatter
         except Exception as e:

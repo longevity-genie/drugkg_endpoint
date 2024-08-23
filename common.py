@@ -39,7 +39,7 @@ ENV_OPENAI_API_KEY = "OPENAI_API_KEY"
 ENV_APP_PORT = "APP_PORT"
 localhost = "127.0.0.1"
 DEFAULT_MODEL = "gpt-4o-mini"
-RESULT_NUM_DEFAULT=5
+RESULT_NUM_DEFAULT=10
 MAX_AGE = 3 * 24 * 3600 * 1000  # 3 days
 
 ######### PROMPTS ###########
@@ -61,6 +61,14 @@ class Role(str, Enum):
     system = "system"
     user = "user"
     assistant = "assistant"
+    tool = "tool"
 
+    # make it similar to Literal["system", "user", "assistant"] while retaining enum convenience
 
+    #def __new__(cls, value, *args, **kwargs):
+    #    obj = str.__new__(cls, value)
+    #    obj._value_ = value
+    #    return obj
 
+    def __str__(self):
+        return str(self.value)

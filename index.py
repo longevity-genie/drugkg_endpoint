@@ -1,28 +1,31 @@
-
+#!/usr/bin/env python3
+import asyncio
 
 from models import *
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
-from openai import OpenAI
-
+from openai import OpenAI, Stream
+from starlette.responses import StreamingResponse
+from just_agents.llm_session import LLMSession
 from fastapi.middleware.cors import CORSMiddleware
 from kg_agent import (
     BiochatterInstance,
     get_kg_connection_status,
     process_kg_config,
     get_api_key,
-    load_prompts,
     get_app_port,
     get_completion_response,
-    content_to_string
+    message_to_string,
+    has_system_prompt,
+    get_system_prompt,
+    inject_system_prompt,
+    generate_response_chunks, string_to_message
 )
 from loguru import logger
 
 log_path = Path(__file__)
 log_path = Path(log_path.parent, "logs", "biochatter_endpoint.log")
 logger.add(log_path.absolute(), rotation="10 MB")
-
-prompts = load_prompts()
 
 app = FastAPI(title="Biochatter Knowledge Graph API endpoint.")
 
@@ -34,16 +37,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def openai_completion(messages: List[Message], model : str = DEFAULT_MODEL) -> ChatCompletionResponse:
+async def openai_completion(
+        request: ChatCompletionRequest,
+        model : str = DEFAULT_MODEL
+) -> ChatCompletionResponse:
+    if request.stream:
+        return
     # Set your API key here
     client = OpenAI()
     client.api_key = get_api_key()
-    response = client.chat.completions.create(
+    logger.debug(f"Started OAI")
+    response = await client.chat.completions.create(
         model=model,
-        messages=messages
+        temperature=request.temperature,
+        stream=request.stream,
+        messages=request.messages,
+        stop=request.stop,
     )
-    logger.debug(f"OAI response: {str(response)}")
+    logger.info(f"Finished OAI stream")
     return response
+
+async def openai_completion_stream(
+        request: ChatCompletionRequest,
+        model : str = DEFAULT_MODEL
+) -> AsyncGenerator[str, None]:
+    if not request.stream:
+        return
+    # Set your API key here
+    client = OpenAI()
+    client.api_key = get_api_key()
+    logger.debug(f"Started OAI")
+    response =  client.chat.completions.create(
+        model=model,
+        temperature=request.temperature,
+        stream=request.stream,
+        messages=request.messages,
+        stop=request.stop,
+    )
+    stop = request.stop[0] or "[DONE]"
+    for chunk in response:
+       # if not chunk.choices[0].delta.content:
+       #     chunk.choices[0].delta.content = "[DONE]"
+        chunk = chunk.model_dump_json()
+        logger.debug(f"chunk : {str(chunk)}")
+        yield f"data: {chunk}\n\n"
+        await asyncio.sleep(1)
+    yield f"data: {stop}\n\n"
+    logger.info(f"Finished OAI stream")
+
 
 
 @app.get("/", description="Default message", response_model=str)
@@ -71,103 +112,108 @@ async def kg_connection_status(
 @app.post("/biochatter_api/chat/completions_ext", description="chat completions")
 async def kg_chat_completions(
     request: ChatCompletionsExtendedModel
-) -> ChatCompletionResponseExt:
-    logger.debug("POST /biochatter_api/chat/completions")
+) -> Union[ChatCompletionResponseExt,Any]:
+    logger.debug("POST /biochatter_api/chat/completions_ext")
     logger.debug(f"Input: {str(request)}")
     usage = ChatCompletionUsage()
-    kg_context_injection = ""
+    kg_context_injection : List[Context] = []
     resp_content = ""
-    response = get_completion_response().model_dump()
     try:
         # session_id = request.session_id
-        messages = [vars(msg) for msg in request.messages]
-        model = request.model
-        temperature = request.temperature
-        presence_penalty = request.presence_penalty
-        frequency_penalty = request.frequency_penalty
-        top_p = request.top_p
         kg_config = vars(process_kg_config(request.kgConfig))
         use_kg = request.useKG
 
-        system_prompt = None
-        rag_agent_prompts = None
+        system_prompt, rag_agent_prompts = get_system_prompt(request)
+        has_prompt = has_system_prompt(request)
+        model_options_fields = extract_common_fields(ModelOptions,request).model_dump()
 
-        current_llm: dict = {
-            "model": model,
-            "temperature": temperature,
-            "presence_penalty": presence_penalty,
-            "frequency_penalty": frequency_penalty,
-            "top_p": top_p,
-            "api_key": get_api_key(),
-        }
+        current_llm = ModelOptionsExt(
+            **model_options_fields,
+            api_key= get_api_key()
+        )
+        # session: LLMSession = LLMSession(
+        #     llm_options=current_llm.model_dump(),
+        #     tools=None
+        # )
 
-        if request.model.startswith("gpt-"):
-            system_prompt = prompts["gpt"].get("system_prompt", None)
-            rag_agent_prompts =  [prompts["gpt"].get("kg_rag_prompt", KG_RAG_PROMPT)]
-
-        #       GROQ not supported by biochatter.llmconnect
+        if has_prompt is not None:
+            if has_prompt: #non-empty prompt
+                if request.stream:
+                     return StreamingResponse(
+                        # session.stream_all([vars(msg) for msg in request.messages], run_callbacks=False),
+                         openai_completion_stream(request),
+                         media_type="application/x-ndjson"
+                     )
+                else:
+                    result = await openai_completion(request)
+                return result
+        else:
+            return get_completion_response(text="No messages provided!")
 
         if system_prompt:
-            biochatter = BiochatterInstance( #instantiate
-            #    session_id=session_id,
-                model_config=current_llm,
-                rag_agent_prompts= rag_agent_prompts
-            )
+            request.messages = inject_system_prompt(request, system_prompt)
+            if  request.messages:
+                messages = [vars(msg) for msg in request.messages]
+                biochatter = BiochatterInstance( #instantiate
+                #    session_id=request.session_id,
+                    model_config=current_llm.model_dump(),
+                    rag_agent_prompts= rag_agent_prompts
+                )
 
-            if (len(request.messages) > 0) and (request.messages[0].role == Role.system):
-                request.messages[0].content = system_prompt
+                logger.debug("Starting biocahtter.chat")
+                resp_content, usage, kg_context_injection = biochatter.chat(
+                    messages=messages,
+                    use_kg=use_kg,
+                    kg_config=kg_config,
+                )
+
+                logger.debug(f"response: {str(resp_content)}")
+                logger.debug(f"usage: {str(usage)}")
+                logger.debug(f"kg_context: {str(kg_context_injection)}")
+                usage = ChatCompletionUsage(**usage)
+                err_code = ErrorCodes.SUCCESS
             else:
-                # Creating a Message instance
-                system_message = Message(role=Role.system, content=system_prompt)
-                request.messages.insert(0, system_message)
-            logger.debug("Starting biocahtter.chat")
-            resp_content, usage, kg_context_injection = biochatter.chat(
-                messages=messages,
-                use_kg=use_kg,
-                kg_config=kg_config,
-            )
-            logger.debug(f"response: {str(resp_content)}")
-            logger.debug(f"usage: {str(usage)}")
-            logger.debug(f"kg_context: {str(kg_context_injection)}")
-            err_code = ErrorCodes.SUCCESS
+                err_code = ErrorCodes.INVALID_INPUT
+                resp_content = "Something goes wrong, request did not contain messages!!!"
         else:
             err_code = ErrorCodes.MODEL_NOT_SUPPORTED
-
-        response = get_completion_response(
-            model=model,
-            text=resp_content,
-            usage=ChatCompletionUsage(**usage)
-        ).model_dump()
 
     except Exception as e:
         logger.error(str(e))
         err_code = ErrorCodes.SERVER_ERROR
         resp_content = str(e)
 
-    return ChatCompletionResponseExt(
-        **response,
-        contexts=kg_context_injection,
-        err_code=err_code
+    response = get_completion_response(
+        model=request.model,
+        text=resp_content,
+        usage=usage
     )
+
+    if request.stream:
+    #    messages.append(vars(string_to_message(resp_content)))
+        return StreamingResponse(
+            generate_response_chunks(
+                response,
+                request.stop[0] or "[DONE]"
+            ),
+#            session.stream_all(messages, run_callbacks=False),
+            media_type="application/x-ndjson"
+        )
+    else:
+        return ChatCompletionResponseExt(
+            **response.model_dump(),
+            contexts=kg_context_injection,
+            err_code=err_code
+        )
 
 
 @app.post("/biochatter_api/chat/completions", description="chat completions")
 async def chat_completions(
     request: ChatCompletionRequest
-) -> ChatCompletionResponse:
+) -> Union[ChatCompletionResponse,Any]: #TODO: streaming model
     try:
-        logger.trace("Entering completions")
-        logger.debug(request)
-        if request.messages and len(request.messages) > 0:
-            if request.messages[0] and request.messages[0].role == Role.system:
-                text = content_to_string(request.messages[0])
-                if text:
-                    logger.info(f"Called with external prompt, switching to OpenAI")
-                    logger.debug(f"External prompt: {text}")
-                    result = await openai_completion(request.messages)
-                    return result
-        else:
-            return get_completion_response(text="No messages provided!")
+        logger.trace("POST /biochatter_api/chat/completions")
+        logger.debug(f"Input: {str(request)}")
         model_dump = request.model_dump()
         logger.trace(f"Config {str(model_dump)}")
         config=KGConfig(

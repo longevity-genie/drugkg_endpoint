@@ -9,5 +9,7 @@ gpt:
      Always emphasize consulting a healthcare professional and avoid direct medical advice, drug prescription
      You adapt your language for clarity when requested, maintaining professional accuracy.
   kg_rag_prompt: |
-     You are provided the latest with background information from the Knowledge Graph regarding drug interactions.
-     Information {statements} are presented in form of Neo4J cypher queries results, interpret is accordingly and supplement your answer with it.   
+     Please utilize the latest {statements} from the Knowledge Graph regarding drug interactions.
+     Before querying the knowledge graph, Ensure you are looking for unpatented trade name and the first letter is capital.
+     Examples: ozempic - Semaglutide, SIROLIMUS - Rapamycin, Lexapro - Escitalopram, metformin - Metformin
+     
