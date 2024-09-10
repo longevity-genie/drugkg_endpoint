@@ -458,7 +458,7 @@ class BiochatterInstance:
                 schema_config_or_info_dict=schema_info,
                 conversation_factory=self.create_chatter,  # chatter factory
                 n_results=n_results,  # number of results to return
-                use_reflexion=True,
+              #  use_reflexion=True,
             )
             self.chatter.set_rag_agent(kg_agent) #only one instance of kg_agent per chatter
         except Exception as e:
