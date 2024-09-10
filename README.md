@@ -4,7 +4,7 @@ Endpoint for KG-RAG AI assistant based on just-agents and fastAPI libraries
 ## Cloning the repo
 Clone the project with dependencies:
 ```commandline
-git clone --recurse-submodules https://github.com/winternewt/biocypher_endpoint.git
+git clone --recurse-submodules https://github.com/winternewt/drugkg_endpoint.git
 ```
 ## Deploying the docker environment
 Install latest docker and docker-compose from respective sites. If needed, you may use or refer to the provided script 
@@ -27,7 +27,7 @@ docker-compose up --build
 
 ```commandline
 micromamba create -f environment.yaml
-micromamba activate biochatter_api
+micromamba activate drugkg_endpoint
 ```
 
 ## Starting REST APIs

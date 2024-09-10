@@ -1,4 +1,4 @@
-name: biochatter_api
+name: drugkg_endpoint
 channels:
   - conda-forge
   - defaults
@@ -9,5 +9,6 @@ dependencies:
     - uvicorn
     - loguru
     - httpx
+    - openai
     - just-agents>=0.0.7
     - biochatter>=0.7.3

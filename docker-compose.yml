@@ -1,7 +1,8 @@
+version: '3.11'
 services:
   huggingchat-ui:
-    container_name: huggingchat-ui
-    image: chat-ui:0.1
+    container_name: biochat-ui
+    image: justdnaseq/genie-chatui:latest
     build:
       context: ./chat-ui
       dockerfile: ./Dockerfile
@@ -10,13 +11,40 @@ services:
       INCLUDE_DB: "False"
     volumes:
       - "./.env.local:/app/.env.local"
+      - "./chat-ui/.env:/app/.env"
     ports:
       - "0.0.0.0:53000:3000"
     depends_on:
-      - "mongo-biochat-ui"
+      - "mongo-biochat-kg"
       - "biocypher-kg"
+      - "litellm-proxy"
 
-  mongo-biochat-ui:
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main-latest
+    command: '--config proxy_server_config.yaml --detailed_debug'
+    volumes:
+      - "./proxy.yaml:/app/proxy_server_config.yaml"
+    ports:
+      - "127.0.0.1:54000:4000" # Map the container port to the host, change the host port if necessary
+    env_file:
+      - ./.env.proxy # Load local .env file
+      - ./.env.redis # Load local .env file
+    depends_on:
+      - "llm-cache"
+
+  llm-cache:
+    image: redis:7.4-alpine
+    container_name: llm-cache-redis
+    restart: unless-stopped
+    command: /bin/sh -c "redis-server --loglevel notice --requirepass $$REDIS_PASSWORD --port $$REDIS_PORT"
+    env_file:
+      - ./.env.redis
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - "./volumes/redis_data:/bitnami/redis/data"
+
+  mongo-biochat-kg:
     container_name: mongodb
     image: mongo:latest
     restart: always

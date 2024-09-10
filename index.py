@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import asyncio
 
+from sympy import false
+
 from models import *
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
-from openai import OpenAI, Stream
 from starlette.responses import StreamingResponse
 from just_agents.llm_session import LLMSession
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,11 +16,12 @@ from kg_agent import (
     get_api_key,
     get_app_port,
     get_completion_response,
+    get_api_base,
     message_to_string,
     has_system_prompt,
     get_system_prompt,
     inject_system_prompt,
-    generate_response_chunks, string_to_message
+    generate_response_chunks, string_to_message, get_oai_client
 )
 from loguru import logger
 
@@ -40,17 +42,14 @@ app.add_middleware(
 async def openai_completion(
         request: ChatCompletionRequest,
         model : str = DEFAULT_MODEL
-) -> ChatCompletionResponse:
+) -> Optional[ChatCompletionResponse]:
     if request.stream:
         return
-    # Set your API key here
-    client = OpenAI()
-    client.api_key = get_api_key()
-    logger.debug(f"Started OAI")
-    response = await client.chat.completions.create(
+    client = get_oai_client()
+    response = client.chat.completions.create(
         model=model,
         temperature=request.temperature,
-        stream=request.stream,
+        stream=False,
         messages=request.messages,
         stop=request.stop,
     )
@@ -63,10 +62,7 @@ async def openai_completion_stream(
 ) -> AsyncGenerator[str, None]:
     if not request.stream:
         return
-    # Set your API key here
-    client = OpenAI()
-    client.api_key = get_api_key()
-    logger.debug(f"Started OAI")
+    client = get_oai_client()
     response =  client.chat.completions.create(
         model=model,
         temperature=request.temperature,
@@ -129,7 +125,8 @@ async def kg_chat_completions(
 
         current_llm = ModelOptionsExt(
             **model_options_fields,
-            api_key= get_api_key()
+            api_key = get_api_key(),
+            api_base = get_api_base()
         )
         # session: LLMSession = LLMSession(
         #     llm_options=current_llm.model_dump(),
@@ -240,9 +237,19 @@ async def chat_completions(
 
 @app.post("/biochatter_api/chat/debug", description="chat completions")
 async def chat_completions_debug(request: dict)-> ChatCompletionResponse:
-    resp_content = "Test!!!"
     try:
         logger.debug(request)
+        client = get_oai_client()
+        messages=[string_to_message("Explain in less than 12 words why is the sky blue", role=Role.user)]
+        logger.debug(f"Mes {str(messages)}")
+        response = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            temperature=0,
+            stream=False,
+            messages=messages,
+        )
+
+        return response
     except Exception as e:
         logger.error(str(e))
         resp_content = str(e)

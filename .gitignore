@@ -30,6 +30,8 @@ dev
 # docker-compose env files
 *.key
 *.key.pub
+.env.local
+.env.proxy
 
 # python ignore files
 __pycache__/

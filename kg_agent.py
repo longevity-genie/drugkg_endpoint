@@ -3,12 +3,14 @@ import json
 import asyncio
 from uuid import uuid4
 import openai
+from langchain_openai import ChatOpenAI
 import yaml
 import time
 import copy
 from models import *
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime as dt
+from openai import OpenAI, Stream
 from biochatter.rag_agent import RagAgent, RagAgentModeEnum
 from biochatter.llm_connect import (
     GptConversation,
@@ -27,10 +29,29 @@ def get_app_port() -> int:
     logger.trace(f"Imported app_port: {str(app_port)}")
     return app_port
 
+def get_api_base() -> str:
+    base = os.getenv(ENV_OPENAI_API_BASE, None)
+    logger.trace(f"Imported api base: {str(base)}")
+    return base
+
 def get_api_key() -> str:
     key = os.getenv(ENV_OPENAI_API_KEY, None)
     logger.trace(f"Imported key starting with: {str(key)[:10]}")
     return key
+
+def get_oai_client() -> Optional[OpenAI]:
+    client = OpenAI(
+        api_key=get_api_key(),
+        base_url=get_api_base()
+    )
+    logger.debug(f"Started OAI")
+    try:
+        models = client.models.list()
+        logger.trace(f"Models avail: {str(models)}")
+        return client
+    except openai.AuthenticationError as e:
+        logger.error(f"OAI auth error: {str(e)}")
+        return None
 
 def load_prompts(file_path: str = PROMPTS_FN) -> Optional[dict]:
     global _prompts
@@ -345,16 +366,12 @@ class BiochatterInstance:
             return
         logger.debug(f"Messages..ok")
         api_key = get_api_key()
+        api_base = get_api_base()
         logger.debug(f"Using api_key : {str(api_key)[:10]}...")
-        if not api_key:
+        if not (api_key and api_base):
             return
         if not openai.api_key or not hasattr(self.chatter, "chat"):
-                # save api_key to os.environ to facilitate conversation_factory
-                # to create conversation
-                if isinstance(self.chatter, GptConversation):
-                    logger.trace(f"Exporting api_key : {str(api_key)[:10]}...")
-                    os.environ["OPENAI_API_KEY"] = api_key
-                self.chatter.set_api_key(api_key, self.session_id)
+            logger.error(f"Chat not initialized: {str(self.chatter)}")
 
         if use_kg:
             logger.debug(f"Using KG, config: {str(kg_config)}")
@@ -397,8 +414,23 @@ class BiochatterInstance:
             self.model_name,
             prompts={"rag_agent_prompts": self.rag_agent_prompts}
         )
-        chatter.set_api_key(get_api_key(), self.session_id)
         chatter.ca_model_name = self.model_name  # Override hardcode
+        api_key = get_api_key()
+        base_url = get_api_base()
+        chatter.user = self.session_id
+        chatter.chat = ChatOpenAI(
+                model_name=self.model_name,
+                temperature=0,
+                openai_api_key=api_key,
+                base_url=base_url,
+            )
+
+        chatter.ca_chat = ChatOpenAI(
+                model_name=self.model_name,
+                temperature=0,
+                openai_api_key=api_key,
+                base_url=base_url,
+            )
         return chatter
 
     def update_kg(self, kg_config: Optional[dict]):
