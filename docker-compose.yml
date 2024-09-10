@@ -32,6 +32,7 @@ services:
       NEO4J_dbms_security_auth__enabled: "false"
       NEO4J_dbms_databases_default__to__read__only: "false"
       NEO4J_ACCEPT_LICENSE_AGREEMENT: "yes"
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
     ports:
       - "0.0.0.0:57474:7474"
       - "0.0.0.0:57687:7687"
