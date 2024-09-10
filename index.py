@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 import asyncio
-
-from sympy import false
-
 from models import *
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
